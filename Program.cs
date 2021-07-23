@@ -4,15 +4,21 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Net;
-using System.Security;
+using System.Runtime.InteropServices;
 
 #nullable enable
 
 namespace BeatSaberDowngrader
 {
-
 	class Program
 	{
+		[DllImport("kernel32.dll", ExactSpelling = true)]
+		public static extern IntPtr GetConsoleWindow();
+
+		[DllImport("user32.dll")]
+		[return: MarshalAs(UnmanagedType.Bool)]
+		public static extern bool SetForegroundWindow(IntPtr hWnd);
+
 		static Dictionary<string, string> GVersionsToManifests = new Dictionary<string, string>()
 		{
 			{ "0.10.1", "6316038906315325420" },
@@ -61,11 +67,43 @@ namespace BeatSaberDowngrader
 			{ "1.16.3", "6392596175313869009" }
 		};
 
-		static void Main(string[] args)
+		[System.Diagnostics.CodeAnalysis.SuppressMessage("Interoperability", "CA1416:Validate platform compatibility", Justification = "The DepotDownloader dll only works on Windows anyhow.")]
+		static void Main()
 		{
 			Console.SetWindowSize(200, 50);
+			SetForegroundWindow(GetConsoleWindow());
 
 			// Download Depot Downloader if not already present...
+			DownloadDepotDownloader();
+
+			string version = AcquireVersion();
+			string manifest = GVersionsToManifests[version];
+
+			// Prompt for user credentials
+			string userName = AcquireUserName();
+			string password = AcquirePassword();
+
+			// Download Beat Saber
+			string outputDirectory = AcquireOutputDirectory(version);
+
+			Process downloadProcess = Process.Start("dotnet", "DepotDownloader\\DepotDownloader.dll -app 620980 -depot 620981 -manifest " + manifest +	" -username " + userName + " -password " + password + " -dir " + outputDirectory + " -validate");
+			if (downloadProcess != null)
+			{
+				Console.WriteLine("Downloading Beat Saber version " + version);
+				Console.WriteLine("Storing downloaded files at " + outputDirectory);
+				Console.WriteLine("...");
+				downloadProcess.WaitForExit();
+
+				Console.WriteLine("Download successful!");
+			}
+			else
+			{
+				Console.WriteLine("Could not download. Giving up...");
+			}
+		}
+
+		static void DownloadDepotDownloader()
+		{
 			string depotDownloaderDllName = "./DepotDownloader/DepotDownloader.dll";
 			if (!File.Exists(depotDownloaderDllName))
 			{
@@ -95,8 +133,10 @@ namespace BeatSaberDowngrader
 					Console.ReadLine();
 				}
 			}
+		}
 
-			// Figure out version and manifest
+		static string AcquireVersion()
+		{
 			Console.WriteLine("Available Beat Saber versions in depot: ");
 			Console.WriteLine("-----");
 			foreach (KeyValuePair<string, string> versionToManifest in GVersionsToManifests)
@@ -104,7 +144,7 @@ namespace BeatSaberDowngrader
 				Console.WriteLine(versionToManifest.Key);
 			}
 
-			string? wantedVersion = null;
+			string? wantedVersion;
 			while (true)
 			{
 				Console.WriteLine("Which version would you like to download?");
@@ -119,9 +159,12 @@ namespace BeatSaberDowngrader
 
 				Console.WriteLine("You must input a version from the list.");
 			}
-			string wantedManifest = GVersionsToManifests[wantedVersion];
 
-			// Prompt for user credentials
+			return wantedVersion;
+		}
+
+		static string AcquireUserName()
+		{
 			string? userName = null;
 			while (userName == null)
 			{
@@ -130,10 +173,17 @@ namespace BeatSaberDowngrader
 				userName = Console.ReadLine();
 			}
 
-			string password = string.Empty;
+			return userName;
+		}
+
+		static string AcquirePassword()
+		{
 			Console.WriteLine("Please enter your steam password. I know this is scary, but please check the source if you are worried. This app does virtually nothing :)");
 			Console.Write("> ");
+
+			string password = string.Empty;
 			ConsoleKey key;
+
 			do
 			{
 				var keyInfo = Console.ReadKey(intercept: true);
@@ -151,7 +201,11 @@ namespace BeatSaberDowngrader
 				}
 			} while (key != ConsoleKey.Enter);
 
-			// Download Beat Saber
+			return password;
+		}
+
+		static string AcquireOutputDirectory(string wantedVersion)
+		{
 			string outputDirectory = Path.Combine(Environment.CurrentDirectory, "Beat_Saber_" + wantedVersion);
 			while (true)
 			{
@@ -169,21 +223,7 @@ namespace BeatSaberDowngrader
 				}
 			}
 
-			Process downloadProcess = Process.Start("dotnet", "DepotDownloader\\DepotDownloader.dll -app 620980 -depot 620981 -manifest " + wantedManifest +	" -username " + userName + " -password " + password + " -dir " + outputDirectory + " -validate");
-
-			if (downloadProcess != null)
-			{
-				Console.WriteLine("Downloading Beat Saber version " + wantedVersion);
-				Console.WriteLine("Storing downloaded files at " + outputDirectory);
-				Console.WriteLine("...");
-				downloadProcess.WaitForExit();
-
-				Console.WriteLine("Download successful!");
-			}
-			else
-			{
-				Console.WriteLine("Could not download. Giving up...");
-			}
+			return outputDirectory;
 		}
 	}
 }
